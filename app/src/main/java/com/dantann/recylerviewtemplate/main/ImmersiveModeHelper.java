@@ -3,6 +3,7 @@ package com.dantann.recylerviewtemplate.main;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
+import android.support.annotation.CallSuper;
 import android.support.annotation.Nullable;
 import android.support.v4.view.ViewCompat;
 import android.support.v7.widget.RecyclerView;
@@ -11,25 +12,24 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
+import java.util.concurrent.CopyOnWriteArrayList;
+
 /**
- * TODO: Create hooks
  * TODO: Make customizable
- * TODO: Make public method for entering and exiting Immersive mode
+ * TODO: Add Javadocs
  */
 public class ImmersiveModeHelper {
 
     private static final long TRANSLATION_ANIMATION_DURATION = 700L;
 
-
     private RecyclerView mRecyclerView;
-    private InternalOnItemTouchListener mOnItemTouchListener = new InternalOnItemTouchListener();
     private InternalChildDrawingOrderCallback mChildDrawingOrderCallback = new InternalChildDrawingOrderCallback();
 
     private GestureDetector mGestureDetector;
     private boolean mIsImmersiveMode;
 
-    @Nullable private View mTouchedView;
-    private int mTouchedIndex;
+    @Nullable private View mLastViewHit;
+    private int mLastIndexHit = -1;
 
     @Nullable private View mSelectedView;
     private int mSelectedIndex;
@@ -40,9 +40,14 @@ public class ImmersiveModeHelper {
     private Animator.AnimatorListener mEnterAnimatorListener = new EnterAnimatorListener();
     private Animator.AnimatorListener mExitAnimatorListener = new ExitAnimatorListener();
 
+    private CopyOnWriteArrayList<Listener> mListeners = new CopyOnWriteArrayList<>();
+
     public void attachToRecyclerView(RecyclerView recyclerView) {
+       attachToRecyclerViewImmersiveMode(recyclerView, RecyclerView.NO_POSITION);
+    }
+
+    public void attachToRecyclerViewImmersiveMode(RecyclerView recyclerView, final int adapterPosition) {
         mRecyclerView = recyclerView;
-        mRecyclerView.addOnItemTouchListener(mOnItemTouchListener);
         mRecyclerView.setChildDrawingOrderCallback(mChildDrawingOrderCallback);
 
         mGestureDetector = new GestureDetector(mRecyclerView.getContext(),new GestureDetector.SimpleOnGestureListener(){
@@ -52,12 +57,18 @@ public class ImmersiveModeHelper {
                 return false;
             }
         });
-        mMaskItemDecoration = new MaskItemDecoration();
-        mRecyclerView.addItemDecoration(mMaskItemDecoration);
+
+        if (adapterPosition == RecyclerView.NO_POSITION) {
+            mMaskItemDecoration = new MaskItemDecoration();
+            mRecyclerView.addItemDecoration(mMaskItemDecoration);
+        } else {
+            mMaskItemDecoration = new MaskItemDecoration(MaskItemDecoration.DEFAULT_VISIBLE_MASK_ALPHA,true);
+            mRecyclerView.addItemDecoration(mMaskItemDecoration);
+            restoreImmersiveMode(adapterPosition);
+        }
     }
 
-    public void attachToRecyclerViewImmersiveMode(RecyclerView recyclerView, final int adapterPosition) {
-        attachToRecyclerView(recyclerView);
+    private void restoreImmersiveMode(final int adapterPosition) {
         if (mRecyclerView.getChildCount() != 0) {
             RecyclerView.ViewHolder holder = mRecyclerView.findViewHolderForAdapterPosition(adapterPosition);
             restoreImmersiveWithViewHolder(holder);
@@ -94,6 +105,29 @@ public class ImmersiveModeHelper {
         }
     }
 
+    public void selectView(View view) {
+        if (mRecyclerView == null || view == null) {
+            return;
+        }
+
+        if (mIsImmersiveMode) {
+            if (mSelectedView == view) {
+                onViewSelectionChanged(mSelectedView,mSelectedIndex,false);
+            }
+        } else {
+            int indexOfView =  mRecyclerView.indexOfChild(view);
+            if (indexOfView >= 0 ) {
+                onViewSelectionChanged(view,indexOfView,true);
+            }
+        }
+    }
+
+    public void unselectCurrentView() {
+        if (mSelectedView != null) {
+            onViewSelectionChanged(mSelectedView,mSelectedIndex,false);
+        }
+    }
+
     public RecyclerView.ViewHolder getSelectedViewHolder() {
         if (mSelectedView != null && mRecyclerView != null) {
             return mRecyclerView.findContainingViewHolder(mSelectedView);
@@ -101,35 +135,44 @@ public class ImmersiveModeHelper {
         return null;
     }
 
+    public void addListener(Listener listener) {
+        if (listener != null && !mListeners.contains(listener)) {
+            mListeners.add(listener);
+        }
+    }
+
+    public void removeListener(Listener listener) {
+        if (listener != null) {
+            mListeners.remove(listener);
+        }
+    }
+
     public void detachFromRecyclerView() {
         if (mRecyclerView != null) {
-            mRecyclerView.removeOnItemTouchListener(mOnItemTouchListener);
             mRecyclerView.setChildDrawingOrderCallback(null);
             mRecyclerView.removeItemDecoration(mMaskItemDecoration);
             mRecyclerView = null;
         }
 
-        mTouchedView = null;
+        mLastViewHit = null;
         mSelectedView = null;
     }
 
     private void onViewTouchEvent(View view,int index, MotionEvent event) {
-        mTouchedView = view;
-        mTouchedIndex = index;
+        mLastViewHit = view;
+        mLastIndexHit = index;
         mGestureDetector.onTouchEvent(event);
     }
 
     private void onSingleTapUp() {
-        if (mTouchedView == null) return;
+        if (mLastViewHit == null || hasTransientState()) return;
 
         if (mIsImmersiveMode) {
-            if (mSelectedView != null && mSelectedView == mTouchedView) {
-                animateSelectedViewBack();
+            if (mSelectedView != null && mSelectedView == mLastViewHit) {
+                onViewSelectionChanged(mSelectedView,mSelectedIndex,false);
             }
         } else {
-            mSelectedView = mTouchedView;
-            mSelectedIndex = mTouchedIndex;
-            animateSelectedViewToCenter();
+            onViewSelectionChanged(mLastViewHit,mLastIndexHit,true);
         }
     }
 
@@ -144,14 +187,10 @@ public class ImmersiveModeHelper {
         //Invalidate to change drawing order, see InternalChildDrawingOrderCallback
         ((View)mSelectedView.getParent()).invalidate();
         animateTranslation(targetTranslation,mEnterAnimatorListener);
-        mMaskItemDecoration.setTargetView(mSelectedView);
-        mMaskItemDecoration.animateMaskIn(0);
     }
 
     private float calculateTargetTranslationY(View view) {
-
-        //Calculate Target Translation
-        float parentCenter = 0;
+        float parentCenter;
         View parent = (View) view.getParent();
         parentCenter = parent.getHeight()/2.0f;
         float offset = view.getHeight()/2.0f;
@@ -161,8 +200,7 @@ public class ImmersiveModeHelper {
     private void animateSelectedViewBack() {
         if (mSelectedView == null || mTargetTranslation == 0) return;
 
-        animateTranslation(0,mExitAnimatorListener);
-        mMaskItemDecoration.animateMaskOut();
+        animateTranslation(0, mExitAnimatorListener);
     }
 
     private void animateTranslation(float targetTranslation, Animator.AnimatorListener animatorListener) {
@@ -172,62 +210,15 @@ public class ImmersiveModeHelper {
             mAnimator.cancel();
         }
         mTargetTranslation = targetTranslation;
-        mAnimator = ObjectAnimator.ofFloat(mSelectedView,"translationY",mSelectedView.getTranslationY(),mTargetTranslation);
+        mAnimator = ObjectAnimator.ofFloat(mSelectedView, "translationY",
+                                            mSelectedView.getTranslationY(), mTargetTranslation);
         mAnimator.setDuration(TRANSLATION_ANIMATION_DURATION);
         mAnimator.addListener(animatorListener);
         mAnimator.start();
     }
 
-    private class InternalOnItemTouchListener implements RecyclerView.OnItemTouchListener {
-
-        @Override
-        public boolean onInterceptTouchEvent(android.support.v7.widget.RecyclerView rv, MotionEvent e) {
-
-            if (mIsImmersiveMode) {
-                //Only the selected view can be tapped
-                if (isViewHit(mSelectedView,e)) {
-                    onViewTouchEvent(mSelectedView,mSelectedIndex,e);
-                    return mIsImmersiveMode;
-                }
-            } else {
-                //Find view that was touched.
-                final int count = rv.getChildCount();
-                for (int i = count - 1; i >= 0; i--) {
-                    final View child = rv.getChildAt(i);
-                    if (isViewHit(child,e)) {
-                        onViewTouchEvent(child,i,e);
-                        return mIsImmersiveMode;
-                    }
-                }
-            }
-
-            return mIsImmersiveMode;
-        }
-
-        private boolean isViewHit(View view, MotionEvent event) {
-            final float x = event.getX();
-            final float y = event.getY();
-            final float translationX = ViewCompat.getTranslationX(view);
-            final float translationY = ViewCompat.getTranslationY(view);
-            if (x >= view.getLeft() + translationX &&
-                    x <= view.getRight() + translationX &&
-                    y >= view.getTop() + translationY &&
-                    y <= view.getBottom() + translationY) {
-                return true;
-            }
-
-            return false;
-        }
-
-        @Override
-        public void onTouchEvent(android.support.v7.widget.RecyclerView rv, MotionEvent e) {
-
-        }
-
-        @Override
-        public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
-
-        }
+    private boolean hasTransientState() {
+        return (mAnimator != null && (mAnimator.isRunning() || mAnimator.isStarted()));
     }
 
     /**
@@ -259,15 +250,84 @@ public class ImmersiveModeHelper {
         }
     }
 
-    private class EnterAnimatorListener extends AnimatorListenerAdapter {
+    private class InternalOnItemTouchListener implements RecyclerView.OnItemTouchListener {
+
+        @Override
+        public boolean onInterceptTouchEvent(RecyclerView rv, MotionEvent e) {
+            if (mIsImmersiveMode) {
+                //Only the selected view can be tapped
+                if (isViewHit(mSelectedView, e)) {
+                    onViewTouchEvent(mSelectedView, mSelectedIndex, e);
+                    return mIsImmersiveMode;
+                }
+            } else {
+                if (!rv.dispatchTouchEvent(e)) {
+                    //Find view that was touched.
+                    final int count = rv.getChildCount();
+                    for (int i = count - 1; i >= 0; i--) {
+                        final View child = rv.getChildAt(i);
+                        if (isViewHit(child, e)) {
+                            onViewTouchEvent(child, i, e);
+                            return mIsImmersiveMode;
+                        }
+                    }
+                }
+
+            }
+
+            return mIsImmersiveMode;
+        }
+
+        private boolean isViewHit(View view, MotionEvent event) {
+            final float x = event.getX();
+            final float y = event.getY();
+            final float translationX = ViewCompat.getTranslationX(view);
+            final float translationY = ViewCompat.getTranslationY(view);
+            if (x >= view.getLeft() + translationX &&
+                    x <= view.getRight() + translationX &&
+                    y >= view.getTop() + translationY &&
+                    y <= view.getBottom() + translationY) {
+                return true;
+            }
+
+            return false;
+        }
+
+        @Override
+        public void onTouchEvent(android.support.v7.widget.RecyclerView rv, MotionEvent e) {
+
+        }
+
+        @Override
+        public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+
+        }
+
+    }
+
+        private class EnterAnimatorListener extends AnimatorListenerAdapter {
 
         @Override
         public void onAnimationStart(Animator animation) {
             mIsImmersiveMode = true;
+            mMaskItemDecoration.setTargetView(mSelectedView);
+            mMaskItemDecoration.animateMaskIn(0);
+            ImmersiveModeHelper.this.onAnimationStart();
+        }
+
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            ImmersiveModeHelper.this.onAnimationEnd();
         }
     }
 
     private class ExitAnimatorListener extends AnimatorListenerAdapter {
+
+        @Override
+        public void onAnimationStart(Animator animation) {
+            mMaskItemDecoration.animateMaskOut();
+            ImmersiveModeHelper.this.onAnimationStart();
+        }
 
         @Override
         public void onAnimationEnd(Animator animation) {
@@ -275,7 +335,44 @@ public class ImmersiveModeHelper {
             mSelectedView = null;
             mSelectedIndex = -1;
             mMaskItemDecoration.setTargetView(null);
+            ImmersiveModeHelper.this.onAnimationEnd();
         }
+    }
+
+    @CallSuper
+    protected void onViewSelectionChanged(View selectedView, int selectedIndex, boolean selected) {
+        if (selected) {
+            mSelectedView = selectedView;
+            mSelectedIndex = selectedIndex;
+            animateSelectedViewToCenter();
+        } else {
+            animateSelectedViewBack();
+        }
+
+        final RecyclerView.ViewHolder holder = mRecyclerView.getChildViewHolder(selectedView);
+        for (Listener listener : mListeners) {
+            listener.onViewHolderSelectionChanged(holder, selected);
+        }
+    }
+
+    @CallSuper
+    protected void onAnimationStart() {
+        for (Listener listener : mListeners) {
+            listener.onAnimationStart();
+        }
+    }
+
+    @CallSuper
+    protected void onAnimationEnd() {
+        for (Listener listener : mListeners) {
+            listener.onAnimationEnd();
+        }
+    }
+
+    public interface Listener {
+        void onViewHolderSelectionChanged(RecyclerView.ViewHolder holder, boolean selected);
+        void onAnimationStart();
+        void onAnimationEnd();
     }
 
 }

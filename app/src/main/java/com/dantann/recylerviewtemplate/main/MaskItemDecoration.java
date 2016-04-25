@@ -12,7 +12,7 @@ import android.view.View;
 public class MaskItemDecoration extends RecyclerView.ItemDecoration {
 
     private static final long DEFAULT_ALPHA_ANIMATION_DURATION = 700L;
-    private static final int DEFAULT_VISIBLE_MASK_ALPHA = 255;
+    public static final int DEFAULT_VISIBLE_MASK_ALPHA = 255;
 
     protected Paint mPaint;
     protected ValueAnimator mAlphaValueAnimator;
@@ -22,12 +22,19 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
     private int mVisibleMaskAlpha = DEFAULT_VISIBLE_MASK_ALPHA;
 
     public MaskItemDecoration() {
-        initialize();
+        this(DEFAULT_VISIBLE_MASK_ALPHA);
     }
 
     public MaskItemDecoration(int visibleMaskAlpha) {
-        mVisibleMaskAlpha = visibleMaskAlpha;
+        this(visibleMaskAlpha, false);
+    }
+
+    public MaskItemDecoration(int visibleMaskAlpha, boolean isMaskVisible) {
         initialize();
+        if (isMaskVisible) {
+            mTargetAlpha = visibleMaskAlpha;
+            mPaint.setAlpha(mTargetAlpha);
+        }
     }
 
     protected void initialize() {
@@ -69,6 +76,19 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
             canvas.drawRect(0, view.getBottom() + tY, parent.getWidth(), parent.getHeight(), mPaint);
         } else {
             canvas.drawRect(0, 0, parent.getWidth(), parent.getHeight(), mPaint);
+        }
+    }
+
+    @Override
+    public void onDraw(Canvas canvas, RecyclerView parent, RecyclerView.State state) {
+        super.onDraw(canvas, parent, state);
+
+        if (mTargetView != null) {
+            View view = mTargetView;
+            if (mPaint.getAlpha() > 0) {
+                final float tY = ViewCompat.getTranslationY(view);
+                canvas.drawRect(0, view.getTop() + tY, parent.getWidth(), view.getBottom()+tY, mPaint);
+            }
         }
     }
 

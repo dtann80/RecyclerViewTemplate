@@ -7,4 +7,14 @@
         android:title="Reset"
         android:orderInCategory="100"
         app:showAsAction="never" />
+
+    <item android:id="@+id/action_select"
+          android:title="Select First View"
+          android:orderInCategory="100"
+          app:showAsAction="never" />
+
+    <item android:id="@+id/action_unselect"
+          android:title="Unselect Current Selected"
+          android:orderInCategory="100"
+          app:showAsAction="never" />
 </menu>

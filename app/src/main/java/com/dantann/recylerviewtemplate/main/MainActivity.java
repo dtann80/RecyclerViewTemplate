@@ -11,7 +11,9 @@ import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import com.dantann.recylerviewtemplate.R;
 import com.dantann.recylerviewtemplate.framework.AbstractActivityLifecycleCallbacks;
@@ -54,11 +56,12 @@ public class MainActivity extends AppCompatActivity {
         if (isChangingConfigurations()) {
             RecyclerView.ViewHolder holder = mImmersiveModeHelper.getSelectedViewHolder();
             if (holder != null) {
-                Timber.d("CALLED viewHolder posiotn  is " + holder.getAdapterPosition());
+                Timber.d("CALLED viewHolder position  is " + holder.getAdapterPosition());
                 final int adapterPosition = holder.getAdapterPosition();
                 getApplication().registerActivityLifecycleCallbacks(new AbstractActivityLifecycleCallbacks() {
                     @Override
                     public void onActivityCreated(Activity activity, Bundle savedInstanceState) {
+                        getApplication().unregisterActivityLifecycleCallbacks(this);
                         ((MainActivity)activity).mRestoreImmersiveModeAdapterPosition = adapterPosition;
                     }
                 });
@@ -93,10 +96,19 @@ public class MainActivity extends AppCompatActivity {
         // as you specify a parent activity in AndroidManifest.xml.
         int id = item.getItemId();
 
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_reset) {
-            ProcessPhoenix.triggerRebirth(this);
-            return true;
+        switch (id) {
+
+            case R.id.action_reset:
+                ProcessPhoenix.triggerRebirth(this);
+                break;
+
+            case R.id.action_select:
+                mImmersiveModeHelper.selectView(recyclerView.getChildAt(0));
+                break;
+
+            case R.id.action_unselect:
+                mImmersiveModeHelper.unselectCurrentView();
+                break;
         }
 
         return super.onOptionsItemSelected(item);
@@ -111,9 +123,21 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onBindViewHolder(BaseViewHolder holder, int position) {
+        public void onBindViewHolder(BaseViewHolder holder, final int position) {
             RandomCardView cardView = (RandomCardView) holder.itemView;
             cardView.titleTextView.setText("Position: " + position);
+            cardView.button.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Toast.makeText(v.getContext(),"Clicked on button " + position,Toast.LENGTH_SHORT).show();
+                }
+            });
+//            holder.itemView.setOnClickListener(new View.OnClickListener() {
+//                @Override
+//                public void onClick(View v) {
+//                    mImmersiveModeHelper.selectView(v);
+//                }
+//            });
         }
 
         @Override
