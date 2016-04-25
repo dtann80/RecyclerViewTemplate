@@ -23,7 +23,6 @@ import com.jakewharton.processphoenix.ProcessPhoenix;
 
 import butterknife.Bind;
 import butterknife.ButterKnife;
-import timber.log.Timber;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -56,7 +55,6 @@ public class MainActivity extends AppCompatActivity {
         if (isChangingConfigurations()) {
             RecyclerView.ViewHolder holder = mImmersiveModeHelper.getSelectedViewHolder();
             if (holder != null) {
-                Timber.d("CALLED viewHolder position  is " + holder.getAdapterPosition());
                 final int adapterPosition = holder.getAdapterPosition();
                 getApplication().registerActivityLifecycleCallbacks(new AbstractActivityLifecycleCallbacks() {
                     @Override
@@ -132,12 +130,12 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(v.getContext(),"Clicked on button " + position,Toast.LENGTH_SHORT).show();
                 }
             });
-//            holder.itemView.setOnClickListener(new View.OnClickListener() {
-//                @Override
-//                public void onClick(View v) {
-//                    mImmersiveModeHelper.selectView(v);
-//                }
-//            });
+            holder.itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    mImmersiveModeHelper.selectView(v);
+                }
+            });
         }
 
         @Override
