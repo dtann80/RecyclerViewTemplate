@@ -9,8 +9,6 @@ import android.support.v4.view.ViewCompat;
 import android.support.v7.widget.RecyclerView;
 import android.view.View;
 
-import timber.log.Timber;
-
 /**
  * ItemDecoration that provides a black mask over the RecyclerView. If a view is set as a visible
  * child the mask will be drawn around the the view.
@@ -84,7 +82,7 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
     /**
      * Set duration of the Mask animation
      *
-     * @param duration
+     * @param duration long
      */
     public void setAnimationDuration(long duration) {
         mAlphaValueAnimator.setDuration(duration);
@@ -97,10 +95,9 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
         mRecyclerView = parent;
 
         if (mVisibleChild != null) {
+            //Draw mask
             final View view = mVisibleChild;
             final float tY = ViewCompat.getTranslationY(view);
-
-            //Draw mask
             //Above
             canvas.drawRect(0, 0, parent.getWidth(), view.getTop() + tY, mPaint);
             //Below
@@ -132,9 +129,6 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
      */
     public void animateMaskIn(long startDelay) {
         animateMask(startDelay, mVisibleMaskAlpha);
-        if (mVisibleChild != null) {
-            Timber.d("CALLED " + mVisibleChild.getLeft());
-        }
     }
 
     /**

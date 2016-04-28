@@ -7,6 +7,7 @@ import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.support.v7.widget.Toolbar;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.Menu;
@@ -29,6 +30,9 @@ public class MainActivity extends AppCompatActivity {
     @Bind(R.id.recyclerView)
     RecyclerView recyclerView;
 
+    @Bind(R.id.toolbar)
+    Toolbar toolbar;
+
     private ImmersiveModeHelper mImmersiveModeHelper;
     private int mRestoreImmersiveModeAdapterPosition = RecyclerView.NO_POSITION;
 
@@ -37,7 +41,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         ButterKnife.bind(this);
-
+        setSupportActionBar(toolbar);
         mImmersiveModeHelper = new ImmersiveModeHelper();
 
         recyclerView.setLayoutManager(new SimpleLinearLayoutManager(this));
@@ -64,7 +68,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             }
-
         }
     }
 
@@ -77,7 +80,6 @@ public class MainActivity extends AppCompatActivity {
         } else {
             mImmersiveModeHelper.attachToRecyclerView(recyclerView);
         }
-
     }
 
     @Override

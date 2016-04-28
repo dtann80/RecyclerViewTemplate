@@ -6,8 +6,6 @@ import android.animation.ObjectAnimator;
 import android.support.annotation.CallSuper;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.RecyclerView;
-import android.view.GestureDetector;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
@@ -24,11 +22,7 @@ public class ImmersiveModeHelper {
     private RecyclerView mRecyclerView;
     private InternalChildDrawingOrderCallback mChildDrawingOrderCallback = new InternalChildDrawingOrderCallback();
 
-    private GestureDetector mGestureDetector;
     private boolean mIsImmersiveMode;
-
-    @Nullable private View mLastViewHit;
-    private int mLastIndexHit = -1;
 
     @Nullable private View mSelectedView;
     private int mSelectedIndex;
@@ -49,19 +43,12 @@ public class ImmersiveModeHelper {
     /**
      * Attaches to a RecyclerView to provide immersive mode.
      *
-     * @param recyclerView
+     * @param recyclerView RecyclerView
      * @param adapterPosition - providing a valid adapter position will start it in immersive mode
      */
     public void attachToRecyclerViewImmersiveMode(RecyclerView recyclerView, final int adapterPosition) {
         mRecyclerView = recyclerView;
         mRecyclerView.setChildDrawingOrderCallback(mChildDrawingOrderCallback);
-        mGestureDetector = new GestureDetector(mRecyclerView.getContext(),new GestureDetector.SimpleOnGestureListener(){
-            @Override
-            public boolean onSingleTapUp(MotionEvent e) {
-                ImmersiveModeHelper.this.onSingleTapUp();
-                return false;
-            }
-        });
 
         if (adapterPosition == RecyclerView.NO_POSITION) {
             mMaskItemDecoration = new MaskItemDecoration();
@@ -180,26 +167,7 @@ public class ImmersiveModeHelper {
             mRecyclerView = null;
         }
 
-        mLastViewHit = null;
         mSelectedView = null;
-    }
-
-    private void onViewTouchEvent(View view,int index, MotionEvent event) {
-        mLastViewHit = view;
-        mLastIndexHit = index;
-        mGestureDetector.onTouchEvent(event);
-    }
-
-    private void onSingleTapUp() {
-        if (mLastViewHit == null || hasTransientState()) return;
-
-        if (mIsImmersiveMode) {
-            if (mSelectedView != null && mSelectedView == mLastViewHit) {
-                onViewSelectionChanged(mSelectedView,mSelectedIndex,false);
-            }
-        } else {
-            onViewSelectionChanged(mLastViewHit,mLastIndexHit,true);
-        }
     }
 
     private void animateSelectedViewToCenter() {
