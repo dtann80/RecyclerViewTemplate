@@ -1,5 +1,7 @@
 package com.dantann.recylerviewtemplate.main;
 
+import android.animation.Animator;
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.Context;
 import android.os.Bundle;
@@ -22,6 +24,8 @@ import com.dantann.recylerviewtemplate.framework.BaseViewHolder;
 import com.dantann.recylerviewtemplate.framework.SpacesItemDecoration;
 import com.jakewharton.processphoenix.ProcessPhoenix;
 
+import java.util.List;
+
 import butterknife.Bind;
 import butterknife.ButterKnife;
 
@@ -43,6 +47,7 @@ public class MainActivity extends AppCompatActivity {
         ButterKnife.bind(this);
         setSupportActionBar(toolbar);
         mImmersiveModeHelper = new ImmersiveModeHelper();
+        mImmersiveModeHelper.setImmersiveModeListener(new ImmersiveTransitionCallbackInternal());
 
         recyclerView.setLayoutManager(new SimpleLinearLayoutManager(this));
         recyclerView.setAdapter(new RandomCardAdapter());
@@ -106,8 +111,8 @@ public class MainActivity extends AppCompatActivity {
                 mImmersiveModeHelper.selectView(recyclerView.getChildAt(0));
                 break;
 
-            case R.id.action_unselect:
-                mImmersiveModeHelper.unselectCurrentView();
+            case R.id.action_select_pos:
+                mImmersiveModeHelper.selectPosition(0);
                 break;
         }
 
@@ -171,6 +176,34 @@ public class MainActivity extends AppCompatActivity {
             return new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    private class ImmersiveTransitionCallbackInternal implements ImmersiveModeHelper.ImmersiveTransitionCallback {
+
+        @Override
+        public void onCreateAnimators(RecyclerView.ViewHolder viewHolder, boolean selected, List<Animator> animators) {
+            final View view = viewHolder.itemView;
+            float targetScale = selected ? calculateImmersiveScale(view) : 1.0f;
+
+            //Scale animation
+            ObjectAnimator scaleXAnimator = ObjectAnimator.ofFloat(view, "scaleX",targetScale);
+            scaleXAnimator.setDuration(ImmersiveModeHelper.DEFAULT_ANIMATION_DURATION);
+            animators.add(scaleXAnimator);
+            ObjectAnimator scaleYAnimator = ObjectAnimator.ofFloat(view, "scaleY", targetScale);
+            scaleYAnimator.setDuration(ImmersiveModeHelper.DEFAULT_ANIMATION_DURATION);
+            animators.add(scaleYAnimator);
+        }
+
+        @Override
+        public float onGetImmersiveTranslationY(RecyclerView.ViewHolder viewHolder, float defaultTranslationY) {
+            return defaultTranslationY;
+        }
+
+        private float calculateImmersiveScale(View view) {
+            float totalPadding = view.getLeft() + (recyclerView.getWidth() - view.getRight());
+            return 1.0f + (totalPadding/view.getWidth());
+        }
+
     }
 
 }

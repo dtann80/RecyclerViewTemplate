@@ -13,8 +13,8 @@
           android:orderInCategory="100"
           app:showAsAction="never" />
 
-    <item android:id="@+id/action_unselect"
-          android:title="Unselect Current Selected"
+    <item android:id="@+id/action_select_pos"
+          android:title="Select first position"
           android:orderInCategory="100"
           app:showAsAction="never" />
 </menu>

@@ -2,25 +2,34 @@ package com.dantann.recylerviewtemplate.main;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.support.annotation.CallSuper;
 import android.support.annotation.Nullable;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.widget.RecyclerView;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Helper class for creating Immersive mode. Once it has been attached,
- * call {@link #selectView(View)} to enter/leave immersive mode.
+ * Helper class for creating Immersive mode. It must be attached to a RecyclerView and once it
+ * has been attached, call {@link #selectView(View)} or {@link #selectPosition(int)} to enter/leave
+ * immersive mode. A {@link SelectionChangeListener} can be added to listen for changes in the
+ * selected view for immersive mode. {@link ImmersiveTransitionCallback} can be set to change or
+ * add behavior with the immersive mode transition.
  */
 public class ImmersiveModeHelper {
 
-    private static final long TRANSLATION_ANIMATION_DURATION = 700L;
+    public static final long DEFAULT_ANIMATION_DURATION = 500L;
 
     private RecyclerView mRecyclerView;
     private InternalChildDrawingOrderCallback mChildDrawingOrderCallback = new InternalChildDrawingOrderCallback();
+    private InternalOnItemTouchListener mOnItemTouchListener = new InternalOnItemTouchListener();
 
     private boolean mIsImmersiveMode;
 
@@ -28,20 +37,45 @@ public class ImmersiveModeHelper {
     private int mSelectedIndex;
 
     @Nullable
-    private ObjectAnimator mAnimator;
+    private AnimatorSet mAnimatorSet;
     private float mTargetTranslation;
     private MaskItemDecoration mMaskItemDecoration;
-    private Animator.AnimatorListener mEnterAnimatorListener = new EnterAnimatorListener();
-    private Animator.AnimatorListener mExitAnimatorListener = new ExitAnimatorListener();
 
-    private CopyOnWriteArrayList<Listener> mListeners = new CopyOnWriteArrayList<>();
+    private final AnimatorListenerAdapter mEnterAnimatorListener = new AnimatorListenerAdapter() {
 
+        @Override
+        public void onAnimationStart(Animator animation) {
+            mIsImmersiveMode = true;
+        }
+
+    };
+
+    private final AnimatorListenerAdapter mExitAnimatorListener = new AnimatorListenerAdapter(){
+
+        @Override
+        public void onAnimationEnd(Animator animation) {
+            mIsImmersiveMode = false;
+            mSelectedView = null;
+            mSelectedIndex = -1;
+            mMaskItemDecoration.setVisibleChild(null);
+        }
+
+    };
+
+    private ImmersiveTransitionCallback mImmersiveTransitionCallback;
+    private CopyOnWriteArrayList<SelectionChangeListener> mSelectionChangeListeners = new CopyOnWriteArrayList<>();
+
+    /**
+     * Attaches to a RecyclerView.
+     *
+     * @param recyclerView RecyclerView
+     */
     public void attachToRecyclerView(RecyclerView recyclerView) {
        attachToRecyclerViewImmersiveMode(recyclerView, RecyclerView.NO_POSITION);
     }
 
     /**
-     * Attaches to a RecyclerView to provide immersive mode.
+     * Attaches to a RecyclerView.
      *
      * @param recyclerView RecyclerView
      * @param adapterPosition - providing a valid adapter position will start it in immersive mode
@@ -49,6 +83,7 @@ public class ImmersiveModeHelper {
     public void attachToRecyclerViewImmersiveMode(RecyclerView recyclerView, final int adapterPosition) {
         mRecyclerView = recyclerView;
         mRecyclerView.setChildDrawingOrderCallback(mChildDrawingOrderCallback);
+        mRecyclerView.addOnItemTouchListener(mOnItemTouchListener);
 
         if (adapterPosition == RecyclerView.NO_POSITION) {
             mMaskItemDecoration = new MaskItemDecoration();
@@ -86,12 +121,11 @@ public class ImmersiveModeHelper {
         mSelectedView = holder.itemView;
         if (mSelectedView != null) {
             mSelectedIndex = mRecyclerView.indexOfChild(mSelectedView);
-            float targetTranslation = calculateTargetTranslationY(mSelectedView);
+            float targetTranslation = calculateImmersiveTranslationY(mSelectedView);
             mTargetTranslation = targetTranslation;
             mSelectedView.setTranslationY(targetTranslation);
             mIsImmersiveMode = true;
             mMaskItemDecoration.setVisibleChild(mSelectedView);
-            mMaskItemDecoration.animateMaskIn(0);
             notifyOnViewHolderSelectionChanged(mSelectedView,true);
         } else {
             //TODO: Log error
@@ -101,23 +135,24 @@ public class ImmersiveModeHelper {
     /**
      * Selects the view, or un-selects it if it has already been selected.
      * If there are any changes in the selected state,
-     * {@link Listener#onViewHolderSelectionChanged(RecyclerView.ViewHolder, boolean)} will be called
+     * {@link SelectionChangeListener#onViewHolderSelectionChanged(RecyclerView.ViewHolder, boolean)}
+     * will be called
      *
      * @param view must be a view that is a child of the RecyclerView that is attached.
      */
     public void selectView(View view) {
-        if (mRecyclerView == null || view == null || hasTransientState()) {
+        if (mRecyclerView == null || view == null || isAnimating()) {
             return;
         }
 
         if (mIsImmersiveMode) {
             if (mSelectedView == view) {
-                onViewSelectionChanged(mSelectedView,mSelectedIndex,false);
+                onViewSelectionChanged(mSelectedView, mSelectedIndex,false);
             }
         } else {
             int indexOfView = mRecyclerView.indexOfChild(view);
             if (indexOfView >= 0 ) {
-                onViewSelectionChanged(view,indexOfView,true);
+                onViewSelectionChanged(view, indexOfView, true);
             } else {
                 //TODO: Log error
             }
@@ -125,11 +160,21 @@ public class ImmersiveModeHelper {
     }
 
     /**
-     * Un-selects the view that is currently selected.
+     * Selects the position, or un-select it if it has already been selected.
+     * If there are any changes in the selected state,
+     * {@link SelectionChangeListener#onViewHolderSelectionChanged(RecyclerView.ViewHolder, boolean)}
+     * will be called
+     *
+     * @param position adapter position of view to select.
      */
-    public void unselectCurrentView() {
-        if (mSelectedView != null) {
-            onViewSelectionChanged(mSelectedView,mSelectedIndex,false);
+    public void selectPosition(int position) {
+        if (mRecyclerView == null || position < 0 || isAnimating()) {
+            return;
+        }
+
+        RecyclerView.ViewHolder holder = mRecyclerView.findViewHolderForAdapterPosition(position);
+        if (holder != null) {
+            selectView(holder.itemView);
         }
     }
 
@@ -140,21 +185,25 @@ public class ImmersiveModeHelper {
     @Nullable
     public RecyclerView.ViewHolder getSelectedViewHolder() {
         if (mSelectedView != null && mRecyclerView != null) {
-            return mRecyclerView.findContainingViewHolder(mSelectedView);
+            return mRecyclerView.getChildViewHolder(mSelectedView);
         }
         return null;
     }
 
-    public void addListener(Listener listener) {
-        if (listener != null && !mListeners.contains(listener)) {
-            mListeners.add(listener);
+    public void addSelectionChangeListener(SelectionChangeListener selectionChangeListener) {
+        if (selectionChangeListener != null && !mSelectionChangeListeners.contains(selectionChangeListener)) {
+            mSelectionChangeListeners.add(selectionChangeListener);
         }
     }
 
-    public void removeListener(Listener listener) {
-        if (listener != null) {
-            mListeners.remove(listener);
+    public void removeSelectionChangeListener(SelectionChangeListener selectionChangeListener) {
+        if (selectionChangeListener != null) {
+            mSelectionChangeListeners.remove(selectionChangeListener);
         }
+    }
+
+    public void setImmersiveModeListener(ImmersiveTransitionCallback listener) {
+        mImmersiveTransitionCallback = listener;
     }
 
     /**
@@ -164,6 +213,7 @@ public class ImmersiveModeHelper {
         if (mRecyclerView != null) {
             mRecyclerView.setChildDrawingOrderCallback(null);
             mRecyclerView.removeItemDecoration(mMaskItemDecoration);
+            mRecyclerView.removeOnItemTouchListener(mOnItemTouchListener);
             mRecyclerView = null;
         }
 
@@ -177,42 +227,81 @@ public class ImmersiveModeHelper {
             return;
         }
 
-        float targetTranslation =  calculateTargetTranslationY(mSelectedView);
+        float targetTranslation =  calculateImmersiveTranslationY(mSelectedView);
         //Invalidate to change drawing order, see InternalChildDrawingOrderCallback
         ((View)mSelectedView.getParent()).invalidate();
-        animateTranslation(targetTranslation,mEnterAnimatorListener);
+        animateSelectedView(true, targetTranslation,mEnterAnimatorListener);
     }
 
-    private float calculateTargetTranslationY(View view) {
+    private float calculateImmersiveTranslationY(View view) {
         float parentCenter;
         View parent = (View) view.getParent();
         parentCenter = parent.getHeight()/2.0f;
         float offset = view.getHeight()/2.0f;
-        return parentCenter - (view.getTop() + offset);
+        float newTranslationY = parentCenter - (view.getTop() + offset);
+
+        if (mImmersiveTransitionCallback != null) {
+            return mImmersiveTransitionCallback.onGetImmersiveTranslationY(getSelectedViewHolder(), newTranslationY);
+        }
+
+        return newTranslationY;
     }
 
     private void animateSelectedViewBack() {
         if (mSelectedView == null || mTargetTranslation == 0) return;
 
-        animateTranslation(0, mExitAnimatorListener);
+        animateSelectedView(false, 0, mExitAnimatorListener);
     }
 
-    private void animateTranslation(float targetTranslation, Animator.AnimatorListener animatorListener) {
-        if (mSelectedView == null || mTargetTranslation == targetTranslation) return;
+    private void animateSelectedView(boolean selected,
+                                     float targetTranslationY,
+                                     Animator.AnimatorListener animatorListener) {
+        if (mSelectedView == null
+                || (mTargetTranslation == targetTranslationY)) return;
 
-        if (mAnimator != null) {
-            mAnimator.cancel();
+        if (mAnimatorSet != null) {
+            mAnimatorSet.cancel();
         }
-        mTargetTranslation = targetTranslation;
-        mAnimator = ObjectAnimator.ofFloat(mSelectedView, "translationY",
-                                            mSelectedView.getTranslationY(), mTargetTranslation);
-        mAnimator.setDuration(TRANSLATION_ANIMATION_DURATION);
-        mAnimator.addListener(animatorListener);
-        mAnimator.start();
+
+        mTargetTranslation = targetTranslationY;
+
+        ArrayList<Animator> animators = new ArrayList<>();
+
+        //Translation animation
+        ObjectAnimator translationAnimator = ObjectAnimator.ofFloat(mSelectedView, "translationY",
+                mSelectedView.getTranslationY(), targetTranslationY);
+        translationAnimator.setDuration(DEFAULT_ANIMATION_DURATION);
+        animators.add(translationAnimator);
+
+        //Mask Animation
+        if (selected) {
+            mMaskItemDecoration.setVisibleChild(mSelectedView);
+        }
+
+        int targetAlpha = selected ? MaskItemDecoration.DEFAULT_VISIBLE_MASK_ALPHA : 0;
+        animators.add(mMaskItemDecoration.setupAnimator(targetAlpha));
+
+        if (mImmersiveTransitionCallback != null) {
+            RecyclerView.ViewHolder holder = getSelectedViewHolder();
+            mImmersiveTransitionCallback.onCreateAnimators(holder, selected, animators);
+        }
+
+        mAnimatorSet = new AnimatorSet();
+        mAnimatorSet.playTogether(animators);
+        mAnimatorSet.addListener(animatorListener);
+        mAnimatorSet.start();
     }
 
-    private boolean hasTransientState() {
-        return (mAnimator != null && (mAnimator.isRunning() || mAnimator.isStarted()));
+    /**
+     *
+     * @return true if in immersive mode or in the middle of transition.
+     */
+    public boolean isImmersiveMode() {
+        return mIsImmersiveMode;
+    }
+
+    public boolean isAnimating() {
+        return (mAnimatorSet != null && (mAnimatorSet.isRunning() || mAnimatorSet.isStarted()));
     }
 
     /**
@@ -220,7 +309,7 @@ public class ImmersiveModeHelper {
      */
     private class InternalChildDrawingOrderCallback implements RecyclerView.ChildDrawingOrderCallback {
 
-        private int nextChildIndexToRender;
+        private int mNextChildIndexToRender;
 
         @Override
         public int onGetChildDrawingOrder(int childCount, int iteration) {
@@ -232,51 +321,15 @@ public class ImmersiveModeHelper {
             if (iteration == childCount - 1) {
                 // in the last iteration return the index of the child
                 // we want to bring to front (and reset nextChildIndexToRender)
-                nextChildIndexToRender = 0;
+                mNextChildIndexToRender = 0;
                 return mSelectedIndex;
             } else {
-                if (nextChildIndexToRender == mSelectedIndex) {
+                if (mNextChildIndexToRender == mSelectedIndex) {
                     // skip this index; we will render it during last iteration
-                    nextChildIndexToRender++;
+                    mNextChildIndexToRender++;
                 }
-                return nextChildIndexToRender++;
+                return mNextChildIndexToRender++;
             }
-        }
-    }
-
-    private class EnterAnimatorListener extends AnimatorListenerAdapter {
-
-        @Override
-        public void onAnimationStart(Animator animation) {
-            mIsImmersiveMode = true;
-            mRecyclerView.setLayoutFrozen(true); //Stops scrolling
-            mMaskItemDecoration.setVisibleChild(mSelectedView);
-            mMaskItemDecoration.animateMaskIn(0);
-            ImmersiveModeHelper.this.onAnimationStart();
-        }
-
-        @Override
-        public void onAnimationEnd(Animator animation) {
-            ImmersiveModeHelper.this.onAnimationEnd();
-        }
-    }
-
-    private class ExitAnimatorListener extends AnimatorListenerAdapter {
-
-        @Override
-        public void onAnimationStart(Animator animation) {
-            mMaskItemDecoration.animateMaskOut();
-            ImmersiveModeHelper.this.onAnimationStart();
-        }
-
-        @Override
-        public void onAnimationEnd(Animator animation) {
-            mIsImmersiveMode = false;
-            mRecyclerView.setLayoutFrozen(false);
-            mSelectedView = null;
-            mSelectedIndex = -1;
-            mMaskItemDecoration.setVisibleChild(null);
-            ImmersiveModeHelper.this.onAnimationEnd();
         }
     }
 
@@ -295,26 +348,61 @@ public class ImmersiveModeHelper {
 
     private void notifyOnViewHolderSelectionChanged(final View view, boolean selected) {
         final RecyclerView.ViewHolder holder = mRecyclerView.getChildViewHolder(view);
-        for (Listener listener : mListeners) {
-            listener.onViewHolderSelectionChanged(holder, selected);
+        for (SelectionChangeListener selectionChangeListener : mSelectionChangeListeners) {
+            selectionChangeListener.onViewHolderSelectionChanged(holder, selected);
         }
     }
 
-    @CallSuper
-    protected void onAnimationStart() {
-        for (Listener listener : mListeners) {
-            listener.onAnimationStart();
+    /**
+     * Used for disabling scrolling of the RecyclerView. Also used to prevent touch events on other
+     * RecyclerView children that aren't visible in immersive mode.
+     */
+    private class InternalOnItemTouchListener implements RecyclerView.OnItemTouchListener {
+
+        @Override
+        public boolean onInterceptTouchEvent(RecyclerView rv, MotionEvent e) {
+
+            if (mIsImmersiveMode) {
+                mRecyclerView.requestDisallowInterceptTouchEvent(true); //This disables scrolling
+                if (!isViewHit(mSelectedView, e)) {
+                    return true;//Eat any touch events that aren't on the selected view.
+                }
+            } else {
+                mRecyclerView.requestDisallowInterceptTouchEvent(false);
+            }
+
+            return false;
+        }
+
+        private boolean isViewHit(View view, MotionEvent event) {
+            final float x = event.getX();
+            final float y = event.getY();
+            final float translationX = ViewCompat.getTranslationX(view);
+            final float translationY = ViewCompat.getTranslationY(view);
+            if (x >= view.getLeft() + translationX &&
+                    x <= view.getRight() + translationX &&
+                    y >= view.getTop() + translationY &&
+                    y <= view.getBottom() + translationY) {
+                return true;
+            }
+
+            return false;
+        }
+
+
+        @Override
+        public void onTouchEvent(RecyclerView rv, MotionEvent e) {
+            //Do nothing
+        }
+
+        @Override
+        public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+            //Do nothing
         }
     }
 
-    @CallSuper
-    protected void onAnimationEnd() {
-        for (Listener listener : mListeners) {
-            listener.onAnimationEnd();
-        }
-    }
 
-    public interface Listener {
+    public interface SelectionChangeListener {
 
         /**
          * Called whenever there are changes in the selected ViewHolder.
@@ -324,15 +412,37 @@ public class ImmersiveModeHelper {
          */
         void onViewHolderSelectionChanged(RecyclerView.ViewHolder holder, boolean selected);
 
-        /**
-         * Called when animations starts for entering/leaving immersive mode.
-         */
-        void onAnimationStart();
+    }
+
+    /**
+     * Callbacks to change or add behavior with the immersive transition
+     * for the {@link ImmersiveModeHelper}
+     */
+    public interface ImmersiveTransitionCallback {
 
         /**
-         * Called when animations ends for entering/leaving immersive mode.
+         * Called when creating animators for animating in/out immersive mode.
+         *
+         * @param viewHolder ViewHolder that is being animated.
+         * @param selected true if animating into immersive mode, false means otherwise
+         * @param animators list of animators that will play together. Initial list will contain
+         *                  default animators. Derived classes can add their own animators to the
+         *                  list to be animated.
          */
-        void onAnimationEnd();
+        void onCreateAnimators(RecyclerView.ViewHolder viewHolder, boolean selected, List<Animator> animators);
+
+
+        /**
+         * Called when the view is being animated into immersive mode to get the new translationY.
+         *
+         * @param viewHolder ViewHolder being animated.
+         * @param defaultTranslationY default translationY that centers the view in the center of
+         *                            the RecyclerView, return this if there is no change in the
+         *                            default translationY.
+         * @return the final translationY it should animate to after entering immersive mode.
+         */
+        float onGetImmersiveTranslationY(RecyclerView.ViewHolder viewHolder, float defaultTranslationY);
+
     }
 
 }

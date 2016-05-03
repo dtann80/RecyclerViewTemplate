@@ -1,6 +1,7 @@
 package com.dantann.recylerviewtemplate.main;
 
 
+import android.animation.Animator;
 import android.animation.ValueAnimator;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -26,11 +27,7 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
     private int mVisibleMaskAlpha = DEFAULT_VISIBLE_MASK_ALPHA;
 
     public MaskItemDecoration() {
-        this(DEFAULT_VISIBLE_MASK_ALPHA);
-    }
-
-    public MaskItemDecoration(int visibleMaskAlpha) {
-        this(visibleMaskAlpha, false);
+        this(DEFAULT_VISIBLE_MASK_ALPHA, false);
     }
 
     /**
@@ -123,22 +120,31 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
     }
 
     /**
-     * Animate the mask in.
-     *
-     * @param startDelay start delay of mask animation.
+     * Starts the animating the mask in with the default visible alpha mask.
      */
-    public void animateMaskIn(long startDelay) {
-        animateMask(startDelay, mVisibleMaskAlpha);
+    public void animateMaskIn() {
+        animateMask(mVisibleMaskAlpha);
     }
 
     /**
-     * Animates the mask out.
+     * Animates the mask out if visible.
      */
     public void animateMaskOut() {
-        animateMask(0, 0);
+        animateMask(0);
     }
 
-    private void animateMask(long delay, int targetAlpha) {
+    private void animateMask(int targetAlpha) {
+        setupAnimator(targetAlpha);
+        mAlphaValueAnimator.start();
+    }
+
+    /**
+     * Creates the animator for the mask with the specified target alpha.
+     *
+     * @param targetAlpha float value between 0-255
+     * @return Animator
+     */
+    public Animator setupAnimator(int targetAlpha) {
         if (mTargetAlpha != targetAlpha) {
             mTargetAlpha = targetAlpha;
             if (mAlphaValueAnimator.isStarted() || mAlphaValueAnimator.isRunning()) {
@@ -146,11 +152,10 @@ public class MaskItemDecoration extends RecyclerView.ItemDecoration {
             }
             int currAlpha = mPaint.getAlpha();
             if (currAlpha != mTargetAlpha) {
-                mAlphaValueAnimator.setStartDelay(delay);
                 mAlphaValueAnimator.setIntValues(currAlpha, mTargetAlpha);
-                mAlphaValueAnimator.start();
             }
         }
+        return mAlphaValueAnimator;
     }
 
     /**
